@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "puppeteer-core": "^22.0.0",
-    "@sparticuz/chromium": "^123.0.0",
+    "puppeteer-core": "^19.7.0",
+    "@sparticuz/chromium": "^111.0.0",
     "cheerio": "^1.0.0"
   },
   "devDependencies": {
-    "puppeteer": "^22.0.0"
+    "puppeteer": "^19.7.0"
   }
 }

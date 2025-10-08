@@ -71,9 +71,12 @@ export default async function handler(req, res) {
     };
 
     if (isVercel) {
-      // Use full chromium package (includes binary)
+      // Use chromium package with proven Vercel compatibility
       const chromium = (await import('@sparticuz/chromium')).default;
       puppeteer = await import('puppeteer-core');
+
+      // Disable WebGL for better compatibility
+      chromium.setGraphicsMode = false;
 
       launchOptions = {
         args: chromium.args,
