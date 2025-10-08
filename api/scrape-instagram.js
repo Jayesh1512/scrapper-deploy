@@ -1,11 +1,48 @@
 // api/scrape-instagram.js
-// Instagram Profile Scraper for Vercel
+// Instagram Profile Scraper for Vercel with Cookie File Support
 
 import * as cheerio from 'cheerio';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 export const config = {
   maxDuration: 60,
 };
+
+// Get the directory name in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Store cookies in memory (persists during warm starts)
+let cachedCookies = null;
+
+// Function to load cookies from file
+function loadCookiesFromFile() {
+  try {
+    // Try multiple possible locations
+    const possiblePaths = [
+      path.join(__dirname, '..', 'src', 'instagram_cookies.json'),
+      path.join(__dirname, '..', 'instagram_cookies.json'),
+      path.join(process.cwd(), 'src', 'instagram_cookies.json'),
+      path.join(process.cwd(), 'instagram_cookies.json'),
+    ];
+
+    for (const cookiePath of possiblePaths) {
+      if (fs.existsSync(cookiePath)) {
+        console.log(`Loading cookies from: ${cookiePath}`);
+        const cookieData = fs.readFileSync(cookiePath, 'utf8');
+        return JSON.parse(cookieData);
+      }
+    }
+
+    console.log('No cookie file found in expected locations');
+    return null;
+  } catch (error) {
+    console.log('Error loading cookies from file:', error.message);
+    return null;
+  }
+}
 
 export default async function handler(req, res) {
   // Only allow POST requests
@@ -13,18 +50,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 
-  const { profile, username, password } = req.body;
+  const { profile } = req.body;
 
   if (!profile) {
     return res.status(400).json({ error: 'Profile URL is required in request body' });
   }
 
-  if (!username || !password) {
-    return res.status(400).json({ 
-      error: 'Instagram credentials required',
-      message: 'Please provide username and password in request body'
-    });
-  }
+  // Get credentials from environment variables (fallback if cookies don't work)
+  const INSTAGRAM_USERNAME = process.env.INSTAGRAM_USERNAME;
+  const INSTAGRAM_PASSWORD = process.env.INSTAGRAM_PASSWORD;
 
   let browser;
 
@@ -72,35 +106,69 @@ export default async function handler(req, res) {
     );
     await page.setViewport({ width: 1280, height: 800 });
 
-    // Navigate to Instagram login page
-    await page.goto('https://www.instagram.com/accounts/login/', {
+    // Try to load cookies from file first
+    if (!cachedCookies) {
+      cachedCookies = loadCookiesFromFile();
+    }
+
+    // Load cookies if available
+    if (cachedCookies && cachedCookies.length > 0) {
+      console.log(`Loading ${cachedCookies.length} cookies...`);
+      await page.setCookie(...cachedCookies);
+    }
+
+    // Navigate to Instagram
+    await page.goto('https://www.instagram.com/', {
       waitUntil: 'networkidle2',
       timeout: 30000,
     });
 
-    // Perform login
-    try {
-      await page.waitForSelector('input[name="username"]', { visible: true, timeout: 10000 });
-      await page.type('input[name="username"]', username, { delay: 100 });
-      await page.type('input[name="password"]', password, { delay: 100 });
+    // Check if already logged in by checking current URL
+    const currentUrl = page.url();
+    
+    // If redirected to login page, need to login
+    if (currentUrl.includes('/accounts/login/')) {
+      console.log('Cookies expired or invalid, logging in...');
       
-      await Promise.all([
-        page.click('button[type="submit"]'),
-        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }),
-      ]);
-
-      // Check if login was successful
-      const currentUrl = page.url();
-      if (currentUrl.includes('/accounts/login/')) {
-        throw new Error('Login failed. Please check your credentials.');
+      if (!INSTAGRAM_USERNAME || !INSTAGRAM_PASSWORD) {
+        await browser.close();
+        return res.status(500).json({ 
+          error: 'Instagram credentials not configured',
+          message: 'Cookies expired and no credentials found in environment variables'
+        });
       }
 
-    } catch (error) {
-      await browser.close();
-      return res.status(401).json({ 
-        error: 'Login failed',
-        message: error.message 
-      });
+      // Perform login
+      try {
+        await page.waitForSelector('input[name="username"]', { visible: true, timeout: 10000 });
+        await page.type('input[name="username"]', INSTAGRAM_USERNAME, { delay: 100 });
+        await page.type('input[name="password"]', INSTAGRAM_PASSWORD, { delay: 100 });
+        
+        await Promise.all([
+          page.click('button[type="submit"]'),
+          page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }),
+        ]);
+
+        // Check if login was successful
+        const loginUrl = page.url();
+        if (loginUrl.includes('/accounts/login/')) {
+          throw new Error('Login failed. Please check your credentials.');
+        }
+
+        // Save new cookies for future requests
+        const newCookies = await page.cookies();
+        cachedCookies = newCookies;
+        console.log('Login successful, new cookies cached');
+
+      } catch (error) {
+        await browser.close();
+        return res.status(401).json({ 
+          error: 'Login failed',
+          message: error.message 
+        });
+      }
+    } else {
+      console.log('Successfully logged in using cookies!');
     }
 
     // Navigate to the target profile

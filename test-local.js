@@ -6,10 +6,6 @@ import https from 'https';
 // 🔥 UPDATE THIS TO YOUR VERCEL URL
 const VERCEL_URL = 'https://scrapper-deploy-chi.vercel.app';
 
-// 🔥 UPDATE THESE WITH YOUR INSTAGRAM CREDENTIALS
-const INSTAGRAM_USERNAME = 'your_instagram_username';
-const INSTAGRAM_PASSWORD = 'your_instagram_password';
-
 // 🔥 UPDATE THIS WITH THE PROFILE YOU WANT TO SCRAPE
 const PROFILE_TO_SCRAPE = 'https://www.instagram.com/cristiano/';
 
@@ -20,15 +16,8 @@ async function testInstagramScraper() {
   console.log(`👤 Target Profile: ${PROFILE_TO_SCRAPE}`);
   console.log('='.repeat(60));
 
-  if (INSTAGRAM_USERNAME === 'your_instagram_username') {
-    console.log('\n⚠️  WARNING: Please update your Instagram credentials in the test file!');
-    return;
-  }
-
   const data = JSON.stringify({
-    profile: PROFILE_TO_SCRAPE,
-    username: INSTAGRAM_USERNAME,
-    password: INSTAGRAM_PASSWORD
+    profile: PROFILE_TO_SCRAPE
   });
 
   const url = new URL(VERCEL_URL);
@@ -47,6 +36,7 @@ async function testInstagramScraper() {
   return new Promise((resolve, reject) => {
     console.log('\n📤 Sending request...');
     console.log(`   Endpoint: POST ${VERCEL_URL}/api/scrape-instagram`);
+    console.log(`   Note: Using credentials from Vercel environment variables`);
     console.log(`   This may take 30-60 seconds...\n`);
 
     const startTime = Date.now();
@@ -75,6 +65,17 @@ async function testInstagramScraper() {
           } else {
             console.log('❌ FAILED');
             console.log(JSON.stringify(response, null, 2));
+            
+            if (response.error && response.error.includes('credentials not configured')) {
+              console.log('\n⚠️  Please set environment variables in Vercel:');
+              console.log('   1. Go to your Vercel dashboard');
+              console.log('   2. Select your project');
+              console.log('   3. Go to Settings → Environment Variables');
+              console.log('   4. Add:');
+              console.log('      - INSTAGRAM_USERNAME = your_username');
+              console.log('      - INSTAGRAM_PASSWORD = your_password');
+              console.log('   5. Redeploy your project');
+            }
           }
         } catch (error) {
           console.log('❌ ERROR: Invalid JSON response');
