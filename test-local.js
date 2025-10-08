@@ -1,210 +1,109 @@
-// test-vercel-deployment.js
-// Test your deployed Puppeteer API on Vercel
-// Run with: node test-vercel-deployment.js
+// test-instagram-scraper.js
+// Test the Instagram scraper API on Vercel
 
 import https from 'https';
-import fs from 'fs';
 
-// 🔥 CHANGE THIS TO YOUR VERCEL DEPLOYMENT URL
+// 🔥 UPDATE THIS TO YOUR VERCEL URL
 const VERCEL_URL = 'https://scrapper-deploy-chi.vercel.app';
 
-// Helper function to make HTTP requests
-function makeRequest(url) {
+// 🔥 UPDATE THESE WITH YOUR INSTAGRAM CREDENTIALS
+const INSTAGRAM_USERNAME = 'your_instagram_username';
+const INSTAGRAM_PASSWORD = 'your_instagram_password';
+
+// 🔥 UPDATE THIS WITH THE PROFILE YOU WANT TO SCRAPE
+const PROFILE_TO_SCRAPE = 'https://www.instagram.com/cristiano/';
+
+async function testInstagramScraper() {
+  console.log('🚀 Testing Instagram Scraper on Vercel\n');
+  console.log('='.repeat(60));
+  console.log(`📍 Vercel URL: ${VERCEL_URL}`);
+  console.log(`👤 Target Profile: ${PROFILE_TO_SCRAPE}`);
+  console.log('='.repeat(60));
+
+  if (INSTAGRAM_USERNAME === 'your_instagram_username') {
+    console.log('\n⚠️  WARNING: Please update your Instagram credentials in the test file!');
+    return;
+  }
+
+  const data = JSON.stringify({
+    profile: PROFILE_TO_SCRAPE,
+    username: INSTAGRAM_USERNAME,
+    password: INSTAGRAM_PASSWORD
+  });
+
+  const url = new URL(VERCEL_URL);
+  
+  const options = {
+    hostname: url.hostname,
+    port: 443,
+    path: '/api/scrape-instagram',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(data)
+    }
+  };
+
   return new Promise((resolve, reject) => {
+    console.log('\n📤 Sending request...');
+    console.log(`   Endpoint: POST ${VERCEL_URL}/api/scrape-instagram`);
+    console.log(`   This may take 30-60 seconds...\n`);
+
     const startTime = Date.now();
-    
-    console.log(`   Requesting: ${url}`);
-    
-    https.get(url, (res) => {
-      const chunks = [];
-      let totalSize = 0;
-      
+
+    const req = https.request(options, (res) => {
+      let body = '';
+
       res.on('data', (chunk) => {
-        chunks.push(chunk);
-        totalSize += chunk.length;
+        body += chunk;
       });
-      
+
       res.on('end', () => {
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        const buffer = Buffer.concat(chunks);
-        
-        resolve({
-          statusCode: res.statusCode,
-          headers: res.headers,
-          body: buffer,
-          duration: duration,
-          size: totalSize,
-        });
+
+        console.log(`📥 Response received in ${duration}s`);
+        console.log(`   Status: ${res.statusCode}`);
+        console.log('-'.repeat(60));
+
+        try {
+          const response = JSON.parse(body);
+
+          if (res.statusCode === 200 && response.success) {
+            console.log('✅ SUCCESS! Instagram profile scraped successfully\n');
+            console.log('📊 Scraped Data:');
+            console.log(JSON.stringify(response.data, null, 2));
+          } else {
+            console.log('❌ FAILED');
+            console.log(JSON.stringify(response, null, 2));
+          }
+        } catch (error) {
+          console.log('❌ ERROR: Invalid JSON response');
+          console.log('Raw response:', body);
+        }
+
+        console.log('\n' + '='.repeat(60));
+        resolve();
       });
-    }).on('error', (err) => {
-      reject(err);
     });
+
+    req.on('error', (error) => {
+      console.log(`❌ Request failed: ${error.message}`);
+      reject(error);
+    });
+
+    req.setTimeout(65000, () => {
+      req.destroy();
+      console.log('❌ Request timeout (65 seconds)');
+      reject(new Error('Request timeout'));
+    });
+
+    req.write(data);
+    req.end();
   });
 }
 
-// Test function
-async function testDeployment() {
-  console.log('\n🚀 Testing Vercel Puppeteer Deployment');
-  console.log('='.repeat(60));
-  console.log(`📍 Vercel URL: ${VERCEL_URL}`);
-  console.log('='.repeat(60));
-  
-  if (VERCEL_URL === 'https://your-project.vercel.app') {
-    console.log('\n⚠️  WARNING: Please update VERCEL_URL with your actual deployment URL!');
-    console.log('   Find it at: https://vercel.com/dashboard\n');
-    return;
-  }
-  
-  const testURL = 'https://example.com';
-  let passedTests = 0;
-  let failedTests = 0;
-  
-  // Test 1: Screenshot
-  console.log('\n\n📸 TEST 1: Screenshot');
-  console.log('-'.repeat(60));
-  try {
-    const url = `${VERCEL_URL}/api/puppeteer?url=${encodeURIComponent(testURL)}&action=screenshot`;
-    const result = await makeRequest(url);
-    
-    if (result.statusCode === 200) {
-      const filename = 'vercel-screenshot.png';
-      fs.writeFileSync(filename, result.body);
-      console.log(`   ✅ SUCCESS!`);
-      console.log(`   📁 Saved: ${filename}`);
-      console.log(`   📊 Size: ${(result.size / 1024).toFixed(2)} KB`);
-      console.log(`   ⏱️  Time: ${result.duration}s`);
-      passedTests++;
-    } else {
-      console.log(`   ❌ FAILED - Status: ${result.statusCode}`);
-      console.log(`   Response: ${result.body.toString()}`);
-      failedTests++;
-    }
-  } catch (error) {
-    console.log(`   ❌ ERROR: ${error.message}`);
-    failedTests++;
-  }
-  
-  // Test 2: Full Page Screenshot
-  console.log('\n\n📸 TEST 2: Full Page Screenshot');
-  console.log('-'.repeat(60));
-  try {
-    const url = `${VERCEL_URL}/api/puppeteer?url=${encodeURIComponent(testURL)}&action=screenshot&fullPage=true`;
-    const result = await makeRequest(url);
-    
-    if (result.statusCode === 200) {
-      const filename = 'vercel-screenshot-full.png';
-      fs.writeFileSync(filename, result.body);
-      console.log(`   ✅ SUCCESS!`);
-      console.log(`   📁 Saved: ${filename}`);
-      console.log(`   📊 Size: ${(result.size / 1024).toFixed(2)} KB`);
-      console.log(`   ⏱️  Time: ${result.duration}s`);
-      passedTests++;
-    } else {
-      console.log(`   ❌ FAILED - Status: ${result.statusCode}`);
-      console.log(`   Response: ${result.body.toString()}`);
-      failedTests++;
-    }
-  } catch (error) {
-    console.log(`   ❌ ERROR: ${error.message}`);
-    failedTests++;
-  }
-  
-  // Test 3: PDF
-  console.log('\n\n📄 TEST 3: PDF Generation');
-  console.log('-'.repeat(60));
-  try {
-    const url = `${VERCEL_URL}/api/puppeteer?url=${encodeURIComponent(testURL)}&action=pdf`;
-    const result = await makeRequest(url);
-    
-    if (result.statusCode === 200) {
-      const filename = 'vercel-page.pdf';
-      fs.writeFileSync(filename, result.body);
-      console.log(`   ✅ SUCCESS!`);
-      console.log(`   📁 Saved: ${filename}`);
-      console.log(`   📊 Size: ${(result.size / 1024).toFixed(2)} KB`);
-      console.log(`   ⏱️  Time: ${result.duration}s`);
-      passedTests++;
-    } else {
-      console.log(`   ❌ FAILED - Status: ${result.statusCode}`);
-      console.log(`   Response: ${result.body.toString()}`);
-      failedTests++;
-    }
-  } catch (error) {
-    console.log(`   ❌ ERROR: ${error.message}`);
-    failedTests++;
-  }
-  
-  // Test 4: Content Extraction
-  console.log('\n\n📝 TEST 4: Content Extraction');
-  console.log('-'.repeat(60));
-  try {
-    const url = `${VERCEL_URL}/api/puppeteer?url=${encodeURIComponent(testURL)}&action=content`;
-    const result = await makeRequest(url);
-    
-    if (result.statusCode === 200) {
-      const data = JSON.parse(result.body.toString());
-      console.log(`   ✅ SUCCESS!`);
-      console.log(`   📊 Extracted Data:`);
-      console.log(JSON.stringify(data, null, 4));
-      console.log(`   ⏱️  Time: ${result.duration}s`);
-      passedTests++;
-    } else {
-      console.log(`   ❌ FAILED - Status: ${result.statusCode}`);
-      console.log(`   Response: ${result.body.toString()}`);
-      failedTests++;
-    }
-  } catch (error) {
-    console.log(`   ❌ ERROR: ${error.message}`);
-    failedTests++;
-  }
-  
-  // Test 5: Different Website
-  console.log('\n\n🌐 TEST 5: Different URL (GitHub)');
-  console.log('-'.repeat(60));
-  try {
-    const githubURL = 'https://github.com';
-    const url = `${VERCEL_URL}/api/puppeteer?url=${encodeURIComponent(githubURL)}&action=content`;
-    const result = await makeRequest(url);
-    
-    if (result.statusCode === 200) {
-      const data = JSON.parse(result.body.toString());
-      console.log(`   ✅ SUCCESS!`);
-      console.log(`   📊 Extracted Data:`);
-      console.log(JSON.stringify(data, null, 4));
-      console.log(`   ⏱️  Time: ${result.duration}s`);
-      passedTests++;
-    } else {
-      console.log(`   ❌ FAILED - Status: ${result.statusCode}`);
-      console.log(`   Response: ${result.body.toString()}`);
-      failedTests++;
-    }
-  } catch (error) {
-    console.log(`   ❌ ERROR: ${error.message}`);
-    failedTests++;
-  }
-  
-  // Summary
-  console.log('\n\n' + '='.repeat(60));
-  console.log('📊 TEST SUMMARY');
-  console.log('='.repeat(60));
-  console.log(`✅ Passed: ${passedTests}/5`);
-  console.log(`❌ Failed: ${failedTests}/5`);
-  
-  if (failedTests === 0) {
-    console.log('\n🎉 ALL TESTS PASSED! Your API is working perfectly!');
-  } else {
-    console.log('\n⚠️  Some tests failed. Check the errors above.');
-  }
-  
-  console.log('\n📁 Generated Files:');
-  console.log('   - vercel-screenshot.png');
-  console.log('   - vercel-screenshot-full.png');
-  console.log('   - vercel-page.pdf');
-  console.log('\n');
-}
-
-// Run the tests
-testDeployment().catch(error => {
+// Run the test
+testInstagramScraper().catch(error => {
   console.error('\n💥 Test failed:', error.message);
   process.exit(1);
 });
