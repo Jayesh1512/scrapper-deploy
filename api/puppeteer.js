@@ -1,5 +1,5 @@
 // api/puppeteer.js
-// Based on official Vercel Puppeteer guide
+// Using @sparticuz/chromium-min for better Vercel compatibility
 
 export const config = {
   maxDuration: 60,
@@ -31,7 +31,6 @@ export default async function handler(req, res) {
   let browser;
   
   try {
-    // Dynamic import based on environment (key difference!)
     const isVercel = !!process.env.VERCEL_ENV;
     let puppeteer;
     let launchOptions = {
@@ -39,14 +38,27 @@ export default async function handler(req, res) {
     };
 
     if (isVercel) {
-      // Use chromium package only on Vercel
-      const chromium = (await import('@sparticuz/chromium')).default;
+      // Use chromium-min package with hosted chromium binary
+      const chromium = (await import('@sparticuz/chromium-min')).default;
       puppeteer = await import('puppeteer-core');
       
+      // Use GitHub-hosted chromium binary (version 121 is stable)
+      const CHROMIUM_URL = 'https://github.com/Sparticuz/chromium/releases/download/v121.0.0/chromium-v121.0.0-pack.tar';
+      
       launchOptions = {
-        ...launchOptions,
-        args: chromium.args,
-        executablePath: await chromium.executablePath(),
+        args: [
+          ...chromium.args,
+          '--disable-gpu',
+          '--disable-dev-shm-usage',
+          '--disable-setuid-sandbox',
+          '--no-sandbox',
+          '--no-zygote',
+          '--single-process',
+        ],
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(CHROMIUM_URL),
+        headless: chromium.headless,
+        ignoreHTTPSErrors: true,
       };
     } else {
       // Use regular puppeteer locally
