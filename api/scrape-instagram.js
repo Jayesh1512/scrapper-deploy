@@ -1,5 +1,5 @@
 // api/scrape-instagram.js
-// Instagram Profile Scraper for Vercel with Cookie File Support
+// Instagram Profile Scraper for Vercel using Playwright
 
 import * as cheerio from 'cheerio';
 import fs from 'fs';
@@ -20,7 +20,6 @@ let cachedCookies = null;
 // Function to load cookies from file
 function loadCookiesFromFile() {
   try {
-    // Try multiple possible locations
     const possiblePaths = [
       path.join(__dirname, '..', 'src', 'instagram_cookies.json'),
       path.join(__dirname, '..', 'instagram_cookies.json'),
@@ -36,16 +35,31 @@ function loadCookiesFromFile() {
       }
     }
 
-    console.log('No cookie file found in expected locations');
+    console.log('No cookie file found');
     return null;
   } catch (error) {
-    console.log('Error loading cookies from file:', error.message);
+    console.log('Error loading cookies:', error.message);
     return null;
   }
 }
 
+// Convert Puppeteer cookies to Playwright format
+function convertCookiesToPlaywright(puppeteerCookies) {
+  if (!puppeteerCookies) return null;
+  
+  return puppeteerCookies.map(cookie => ({
+    name: cookie.name,
+    value: cookie.value,
+    domain: cookie.domain,
+    path: cookie.path || '/',
+    expires: cookie.expires || -1,
+    httpOnly: cookie.httpOnly || false,
+    secure: cookie.secure || false,
+    sameSite: cookie.sameSite || 'Lax'
+  }));
+}
+
 export default async function handler(req, res) {
-  // Only allow POST requests
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
@@ -53,140 +67,124 @@ export default async function handler(req, res) {
   const { profile } = req.body;
 
   if (!profile) {
-    return res.status(400).json({ error: 'Profile URL is required in request body' });
+    return res.status(400).json({ error: 'Profile URL is required' });
   }
 
-  // Get credentials from environment variables (fallback if cookies don't work)
   const INSTAGRAM_USERNAME = process.env.INSTAGRAM_USERNAME;
   const INSTAGRAM_PASSWORD = process.env.INSTAGRAM_PASSWORD;
 
   let browser;
 
   try {
-    // Dynamic import based on environment
     const isVercel = !!process.env.VERCEL_ENV;
-    let puppeteer;
-    let launchOptions = {
-      headless: true,
-    };
+    let playwright;
 
     if (isVercel) {
-      // Use chromium package with proven Vercel compatibility
-      const chromium = (await import('@sparticuz/chromium')).default;
-      puppeteer = await import('puppeteer-core');
-
-      // Disable WebGL for better compatibility
-      chromium.setGraphicsMode = false;
-
-      launchOptions = {
-        args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(),
-        headless: chromium.headless,
-        ignoreHTTPSErrors: true,
-      };
+      // Use playwright-aws-lambda for Vercel
+      playwright = await import('playwright-aws-lambda');
     } else {
-      // Use regular puppeteer locally
-      puppeteer = await import('puppeteer');
+      // Use regular playwright locally
+      playwright = await import('playwright');
     }
 
-    browser = await puppeteer.launch(launchOptions);
-    const page = await browser.newPage();
+    // Launch browser
+    if (isVercel) {
+      browser = await playwright.default.launchChromium({
+        headless: true,
+      });
+    } else {
+      browser = await playwright.chromium.launch({
+        headless: true,
+      });
+    }
 
-    // Set realistic user agent
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    );
-    await page.setViewport({ width: 1280, height: 800 });
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 800 },
+    });
 
-    // Try to load cookies from file first
+    // Load cookies if available
     if (!cachedCookies) {
       cachedCookies = loadCookiesFromFile();
     }
 
-    // Load cookies if available
-    if (cachedCookies && cachedCookies.length > 0) {
-      console.log(`Loading ${cachedCookies.length} cookies...`);
-      await page.setCookie(...cachedCookies);
+    if (cachedCookies) {
+      const playwrightCookies = convertCookiesToPlaywright(cachedCookies);
+      if (playwrightCookies) {
+        console.log(`Loading ${playwrightCookies.length} cookies...`);
+        await context.addCookies(playwrightCookies);
+      }
     }
+
+    const page = await context.newPage();
 
     // Navigate to Instagram
     await page.goto('https://www.instagram.com/', {
-      waitUntil: 'networkidle2',
+      waitUntil: 'networkidle',
       timeout: 30000,
     });
 
-    // Check if already logged in by checking current URL
     const currentUrl = page.url();
-    
-    // If redirected to login page, need to login
+
+    // If redirected to login, perform login
     if (currentUrl.includes('/accounts/login/')) {
-      console.log('Cookies expired or invalid, logging in...');
-      
+      console.log('Logging in to Instagram...');
+
       if (!INSTAGRAM_USERNAME || !INSTAGRAM_PASSWORD) {
         await browser.close();
-        return res.status(500).json({ 
+        return res.status(500).json({
           error: 'Instagram credentials not configured',
-          message: 'Cookies expired and no credentials found in environment variables'
+          message: 'Please set INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD'
         });
       }
 
-      // Perform login
       try {
-        await page.waitForSelector('input[name="username"]', { visible: true, timeout: 10000 });
-        await page.type('input[name="username"]', INSTAGRAM_USERNAME, { delay: 100 });
-        await page.type('input[name="password"]', INSTAGRAM_PASSWORD, { delay: 100 });
+        await page.waitForSelector('input[name="username"]', { state: 'visible', timeout: 10000 });
+        await page.fill('input[name="username"]', INSTAGRAM_USERNAME);
+        await page.fill('input[name="password"]', INSTAGRAM_PASSWORD);
         
         await Promise.all([
           page.click('button[type="submit"]'),
-          page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }),
+          page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }),
         ]);
 
-        // Check if login was successful
         const loginUrl = page.url();
         if (loginUrl.includes('/accounts/login/')) {
-          throw new Error('Login failed. Please check your credentials.');
+          throw new Error('Login failed');
         }
 
-        // Save new cookies for future requests
-        const newCookies = await page.cookies();
+        // Save cookies
+        const newCookies = await context.cookies();
         cachedCookies = newCookies;
-        console.log('Login successful, new cookies cached');
+        console.log('Login successful');
 
       } catch (error) {
         await browser.close();
-        return res.status(401).json({ 
+        return res.status(401).json({
           error: 'Login failed',
-          message: error.message 
+          message: error.message
         });
       }
     } else {
-      console.log('Successfully logged in using cookies!');
+      console.log('Logged in using cookies');
     }
 
-    // Navigate to the target profile
-    await page.goto(profile, { 
-      waitUntil: 'networkidle2',
-      timeout: 30000 
+    // Navigate to profile
+    await page.goto(profile, {
+      waitUntil: 'networkidle',
+      timeout: 30000
     });
-    
+
     await page.waitForSelector('body', { timeout: 10000 });
 
-    // Check if profile image exists (to detect private accounts)
+    // Check for private account
     let privateAcc = false;
-    const profileImageExists = await page
-      .waitForSelector('._aagu', {
-        visible: true,
-        timeout: 3000,
-      })
-      .catch(() => null);
-
-    if (!profileImageExists) {
-      console.log('Account is private or profile image not found');
+    try {
+      await page.waitForSelector('._aagu', { state: 'visible', timeout: 3000 });
+      await page.hover('._aagu');
+    } catch {
+      console.log('Account is private');
       privateAcc = true;
-    } else {
-      privateAcc = false;
-      await page.hover('._aagu').catch(() => {});
     }
 
     // Extract page content
@@ -203,24 +201,15 @@ export default async function handler(req, res) {
     const likes = likesArray[0] || 'N/A';
     const comments = likesArray[1] || 'N/A';
 
-    // Extract stats (posts, followers, following)
+    // Extract stats
     const stats = $('header').find('span.x5n08af');
-    
-    // Extract description
     const descElement = $('header').find('span._ap3a');
     const desc = descElement.length ? descElement.text().trim() : '';
-
-    // Extract profile picture
     const profilePicElement = $('img[alt*="profile picture"]').attr('src') || '';
 
-    // Extract username from URL
     const extractedUsername = profile.split('instagram.com/')[1].split('/')[0];
-
-    // Calculate NPLU (numeric character count / username length)
     const numericCount = (extractedUsername.match(/\d/g) || []).length;
     const nplu = numericCount / extractedUsername.length;
-
-    // Check if user has profile picture
     const hasProfilePicture = profilePicElement.includes('https://scontent');
 
     let result = {
@@ -234,29 +223,17 @@ export default async function handler(req, res) {
       comments: comments,
     };
 
-    // Extract stats if available
     if (stats.length >= 3) {
-      const posts = $(stats[0]).text().trim();
-      const followers = $(stats[1]).text().trim();
-      const following = $(stats[2]).text().trim();
-
-      result = {
-        ...result,
-        posts: posts,
-        followers: followers,
-        following: following,
-      };
+      result.posts = $(stats[0]).text().trim();
+      result.followers = $(stats[1]).text().trim();
+      result.following = $(stats[2]).text().trim();
     } else {
-      result = {
-        ...result,
-        posts: 'N/A',
-        followers: 'N/A',
-        following: 'N/A',
-      };
+      result.posts = 'N/A';
+      result.followers = 'N/A';
+      result.following = 'N/A';
     }
 
     await browser.close();
-    browser = null;
 
     return res.status(200).json({
       success: true,
@@ -264,8 +241,8 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('Instagram scraping error:', error);
-    
+    console.error('Scraping error:', error);
+
     if (browser) {
       await browser.close();
     }

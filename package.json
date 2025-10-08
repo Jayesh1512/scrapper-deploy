@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "puppeteer-core": "^19.7.0",
-    "@sparticuz/chromium": "^111.0.0",
+    "playwright-aws-lambda": "^0.10.0",
+    "playwright-core": "^1.40.0",
     "cheerio": "^1.0.0"
   },
   "devDependencies": {
-    "puppeteer": "^19.7.0"
+    "playwright": "^1.40.0"
   }
 }
