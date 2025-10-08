@@ -1,73 +1,93 @@
 // api/puppeteer.js
-// Deploy this file to Vercel and access at: https://your-project.vercel.app/api/puppeteer
-
-import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
+// Based on official Vercel Puppeteer guide
 
 export const config = {
-  maxDuration: 60, // Requires Vercel Pro plan for >10 seconds
+  maxDuration: 60,
 };
 
 export default async function handler(req, res) {
-  let browser = null;
+  const { url, action = 'screenshot', fullPage = 'false' } = req.query;
 
+  if (!url) {
+    return res.status(400).json({ error: 'Please provide a URL parameter' });
+  }
+
+  // Validate URL
+  let targetUrl = url.trim();
+  if (!/^https?:\/\//i.test(targetUrl)) {
+    targetUrl = `https://${targetUrl}`;
+  }
+
+  let parsedUrl;
   try {
-    console.log('Launching browser...');
-    
-    // Launch browser optimized for Vercel serverless
-    browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
-      executablePath: await chromium.executablePath(),
-      headless: chromium.headless,
-    });
+    parsedUrl = new URL(targetUrl);
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+      return res.status(400).json({ error: 'URL must start with http:// or https://' });
+    }
+  } catch (error) {
+    return res.status(400).json({ error: 'Invalid URL provided' });
+  }
 
+  let browser;
+  
+  try {
+    // Dynamic import based on environment (key difference!)
+    const isVercel = !!process.env.VERCEL_ENV;
+    let puppeteer;
+    let launchOptions = {
+      headless: true,
+    };
+
+    if (isVercel) {
+      // Use chromium package only on Vercel
+      const chromium = (await import('@sparticuz/chromium')).default;
+      puppeteer = await import('puppeteer-core');
+      
+      launchOptions = {
+        ...launchOptions,
+        args: chromium.args,
+        executablePath: await chromium.executablePath(),
+      };
+    } else {
+      // Use regular puppeteer locally
+      puppeteer = await import('puppeteer');
+    }
+
+    browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
     
-    // Get URL and action from query parameters
-    const url = req.query.url || 'https://example.com';
-    const action = req.query.action || 'screenshot'; // screenshot, pdf, or content
-    
-    console.log(`Navigating to ${url}...`);
-    await page.goto(url, {
-      waitUntil: 'networkidle0',
+    await page.goto(parsedUrl.toString(), {
+      waitUntil: 'networkidle2',
       timeout: 30000,
     });
 
-    let result;
-
     // Handle different actions
     switch (action) {
-      case 'screenshot':
-        console.log('Taking screenshot...');
+      case 'screenshot': {
         const screenshot = await page.screenshot({
           type: 'png',
-          fullPage: req.query.fullPage === 'true',
+          fullPage: fullPage === 'true',
         });
         
-        await browser.close();
-        browser = null;
-        
         res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Content-Disposition', 'inline; filename="screenshot.png"');
         res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
         return res.status(200).send(screenshot);
+      }
 
-      case 'pdf':
-        console.log('Generating PDF...');
+      case 'pdf': {
         const pdf = await page.pdf({
           format: 'A4',
           printBackground: true,
         });
         
-        await browser.close();
-        browser = null;
-        
         res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline; filename="page.pdf"');
         res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
         return res.status(200).send(pdf);
+      }
 
-      case 'content':
-        console.log('Extracting content...');
+      case 'content': {
         const content = await page.evaluate(() => {
           return {
             title: document.title,
@@ -78,20 +98,15 @@ export default async function handler(req, res) {
           };
         });
         
-        await browser.close();
-        browser = null;
-        
         res.setHeader('Content-Type', 'application/json');
         return res.status(200).json({
           success: true,
-          url,
+          url: parsedUrl.toString(),
           content,
         });
+      }
 
       default:
-        await browser.close();
-        browser = null;
-        
         return res.status(400).json({
           error: 'Invalid action',
           message: 'Action must be: screenshot, pdf, or content',
@@ -99,16 +114,15 @@ export default async function handler(req, res) {
     }
 
   } catch (error) {
-    console.error('Error:', error);
-    
-    if (browser) {
-      await browser.close();
-    }
-
+    console.error('Puppeteer error:', error);
     return res.status(500).json({
       success: false,
       error: 'Failed to process request',
       message: error.message,
     });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
   }
 }
