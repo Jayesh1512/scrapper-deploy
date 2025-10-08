@@ -4,7 +4,8 @@
   "type": "module",
   "dependencies": {
     "puppeteer-core": "^24.15.0",
-    "@sparticuz/chromium-min": "^138.0.0"
+    "@sparticuz/chromium-min": "^138.0.0",
+    "cheerio": "^1.0.0"
   },
   "devDependencies": {
     "puppeteer": "^24.15.0"
