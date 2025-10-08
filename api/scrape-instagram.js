@@ -71,24 +71,14 @@ export default async function handler(req, res) {
     };
 
     if (isVercel) {
-      // Use chromium-min package with hosted chromium binary
-      const chromium = (await import('@sparticuz/chromium-min')).default;
+      // Use full chromium package (includes binary)
+      const chromium = (await import('@sparticuz/chromium')).default;
       puppeteer = await import('puppeteer-core');
 
-      const CHROMIUM_URL = 'https://github.com/Sparticuz/chromium/releases/download/v138.0.0/chromium-v138.0.0-pack.tar';
-
       launchOptions = {
-        args: [
-          ...chromium.args,
-          '--disable-gpu',
-          '--disable-dev-shm-usage',
-          '--disable-setuid-sandbox',
-          '--no-sandbox',
-          '--no-zygote',
-          '--single-process',
-        ],
+        args: chromium.args,
         defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(CHROMIUM_URL),
+        executablePath: await chromium.executablePath(),
         headless: chromium.headless,
         ignoreHTTPSErrors: true,
       };
